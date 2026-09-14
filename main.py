@@ -1,0 +1,71 @@
+from langchain_core.tools import tool
+import os
+from dotenv import load_dotenv
+import email
+from imapclient import IMAPClient
+
+from langchain_ollama import ChatOllama
+from langchain_core.messages import ToolMessage, HumanMessage
+
+
+load_dotenv()
+
+EMAIL_USER = os.getenv("IMAP_USER")
+EMAIL_PASSWORD = os.getenv("IMAP_PASS")
+IMAP_SERVER = "imap.gmail.com"
+IMAP_PORT = 993
+
+
+@tool
+def fetch_recent_emails(limit: int = 5) -> str:
+    """Connects to the Gmail IMAP server using environment variables and selects the inbox."""
+
+    try:
+        with IMAPClient(IMAP_SERVER, port=IMAP_PORT, use_uid=True, ssl=True) as client:
+            client.login(EMAIL_USER, EMAIL_PASSWORD)
+            client.select_folder("INBOX", readonly=True)
+
+            messages = client.search(["ALL"])
+            recent_ids = messages[-limit:]
+            response = client.fetch(recent_ids, ["RFC822"])
+
+            results = []
+            for id, data in response.items():
+                raw_bytes = data[b"RFC822"]
+                msg = email.message_from_bytes(raw_bytes)
+                subject = msg["Subject"]
+                sender = msg["From"]
+                results.append(f"From: {sender} | Subject: {subject}")
+
+            return "\n".join(results)
+
+    except Exception as e:
+        print(f"Failed to connect or authenticate: {e}")
+        return None
+
+
+model = ChatOllama(model="llama3.2")
+model_with_tool = model.bind_tools([fetch_recent_emails])
+
+user_prompt = "Summarize my latest emails in a friendly tone, listing sender and topic for each."
+response = model_with_tool.invoke(user_prompt)
+
+first_tool_call = response.tool_calls[0]
+tool_args = first_tool_call["args"]
+result = fetch_recent_emails.invoke(tool_args)
+
+messages = [
+    HumanMessage(content=user_prompt),
+    response,
+    ToolMessage(content=result, tool_call_id=first_tool_call["id"]),
+]
+final_response = model_with_tool.invoke(messages)
+print(final_response.content)
+
+
+def main():
+    print(".")
+
+
+if __name__ == "__main__":
+    main()
