@@ -3,10 +3,12 @@ import os
 from dotenv import load_dotenv
 import email
 from imapclient import IMAPClient
-
+from langgraph.graph import END
 from langchain_ollama import ChatOllama
 from langchain_core.messages import ToolMessage, HumanMessage
-
+from langgraph.prebuilt import ToolNode
+from typing import Annotated, TypedDict
+from langgraph.graph.message import add_messages
 
 load_dotenv()
 
@@ -46,6 +48,26 @@ def fetch_recent_emails(limit: int = 5) -> str:
 
 model = ChatOllama(model="llama3.2")
 model_with_tool = model.bind_tools([fetch_recent_emails])
+
+
+class AgentState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+def call_model(state: AgentState):
+    response = model_with_tool.invoke(state["messages"])
+    return {"messages": [response]}
+
+
+tool_node = ToolNode([fetch_recent_emails])
+
+
+def should_continue(state: AgentState):
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "tools"
+    return END
+
 
 user_prompt = "Summarize my latest emails in a friendly tone, listing sender and topic for each."
 response = model_with_tool.invoke(user_prompt)
