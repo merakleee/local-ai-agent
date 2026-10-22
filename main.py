@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 import email
 from imapclient import IMAPClient
-
+from langgraph.graph import END
 from langchain_ollama import ChatOllama
 from langchain_core.messages import ToolMessage, HumanMessage
 from langgraph.prebuilt import ToolNode
@@ -59,6 +59,16 @@ def call_model(state: AgentState):
     return {"messages": [response]}
 
 
+tool_node = ToolNode([fetch_recent_emails])
+
+
+def should_continue(state: AgentState):
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "tools"
+    return END
+
+
 user_prompt = "Summarize my latest emails in a friendly tone, listing sender and topic for each."
 response = model_with_tool.invoke(user_prompt)
 
@@ -73,8 +83,6 @@ messages = [
 ]
 final_response = model_with_tool.invoke(messages)
 print(final_response.content)
-
-tool_node = ToolNode([fetch_recent_emails])
 
 
 def main():
