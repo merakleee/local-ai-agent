@@ -3,7 +3,8 @@ import os
 from dotenv import load_dotenv
 import email
 from imapclient import IMAPClient
-from langgraph.graph import END
+from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_ollama import ChatOllama
 from langchain_core.messages import ToolMessage, HumanMessage
 from langgraph.prebuilt import ToolNode
@@ -69,24 +70,38 @@ def should_continue(state: AgentState):
     return END
 
 
-user_prompt = "Summarize my latest emails in a friendly tone, listing sender and topic for each."
-response = model_with_tool.invoke(user_prompt)
+graph_builder = StateGraph(AgentState)
 
-first_tool_call = response.tool_calls[0]
-tool_args = first_tool_call["args"]
-result = fetch_recent_emails.invoke(tool_args)
+graph_builder.add_node("agent", call_model)
+graph_builder.add_node("tools", tool_node)
 
-messages = [
-    HumanMessage(content=user_prompt),
-    response,
-    ToolMessage(content=result, tool_call_id=first_tool_call["id"]),
-]
-final_response = model_with_tool.invoke(messages)
-print(final_response.content)
+graph_builder.set_entry_point("agent")
+graph_builder.add_conditional_edges("agent", should_continue)
+graph_builder.add_edge("tools", "agent")
+
+memory = MemorySaver()
+graph = graph_builder.compile(checkpointer=memory)
+
+config = {"configurable": {"thread_id": "1"}}
+
+result = graph.invoke(
+    {"messages": [HumanMessage(
+        content="Summarize my latest emails in a friendly tone.")]},
+    config,
+)
+print(result["messages"][-1].content)
+
+config = {"configurable": {"thread_id": "2"}}
+result = graph.invoke(
+    {"messages": [HumanMessage(
+        content="Which of those emails looks the most important?")]},
+    config,
+)
+print(result["messages"][-1].content)
 
 
 def main():
-    print(".")
+    print("Email Agent initialized.")
 
 
 if __name__ == "__main__":
