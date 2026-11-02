@@ -1,37 +1,48 @@
 # AI Email Agent
 
-A simple AI agent built with Python, LangChain, and Ollama that can read and summarize your recent Gmail inbox using natural language.
+A simple AI agent built with Python, LangGraph, and Ollama that reads your recent Gmail inbox and answers questions about it in a chat. Everything runs locally, so your emails never go to a cloud model.
+
+Built to learn how LLM tool-calling and agent loops work under the hood.
 
 ## What it does
 
-- Connects to Gmail via IMAP to fetch recent emails (sender + subject)
-- Uses a local LLM (via Ollama) to understand requests like "list me my latest emails"
-- The model decides when to call the email-fetching tool, retrieves the real data, then responds in plain, conversational language
+- Fetches your most recent emails (sender and subject) from Gmail over IMAP
+- Lets you chat with a local LLM, for example "Summarize my latest emails"
+- Remembers the conversation, so follow-ups like "Which one looks most important?" work
 
 ## How it works
 
-1. **Tool** — `fetch_recent_emails` connects to Gmail via `IMAPClient`, fetches the most recent messages, and returns their sender/subject as text.
-2. **Model** — `ChatOllama` (running locally via Ollama) is bound to the tool with `.bind_tools()`, so it can request the tool when relevant.
-3. **Loop** — When the model asks to use the tool, the code runs it manually, then feeds the result back to the model as a `ToolMessage` so it can generate a natural-language summary.
+1. **Tool**: `fetch_recent_emails` connects to Gmail with `IMAPClient` and returns the sender and subject of the latest emails as text.
+2. **Model**: `ChatOllama` runs a local model and is bound to the tool, so it can decide when to call it.
+3. **Graph**: LangGraph runs the loop automatically. The model is asked, and if it requests a tool, the tool runs and its result goes back to the model. This repeats until the model gives a final answer.
+
+5. **Memory**: A `MemorySaver` checkpointer stores the conversation per thread ID, so the agent keeps context between questions.
+
+```
+User -> agent (model) -> needs a tool? -> yes -> tools -> back to agent
+                                        -> no  -> final answer
+```
 
 ## Setup
 
 1. Install dependencies:
-```bash
+   ```bash
    uv sync
-```
-2. Create a `.env` file (see `.env.example`) with your Gmail credentials:
-
-IMAP_USER=your_email@gmail.com
-IMAP_PASS=your_app_password
-
+   ```
+2. Create a `.env` file (see `.env.example`):
+   ```
+   IMAP_USER=your_email@gmail.com
+   IMAP_PASS=your_app_password
+   ```
    > Use a [Gmail App Password](https://myaccount.google.com/apppasswords), not your real password.
-3. Make sure [Ollama](https://ollama.com) is running locally with a model pulled (e.g. `llama3.2`).
+3. Make sure [Ollama](https://ollama.com) is running with a model pulled:
+   ```bash
+   ollama pull llama3.2
+   ```
 4. Run the agent:
-```bash
+   ```bash
    py main.py
-```
+   ```
 
-## Status
+Type your questions at the `You:` prompt, and type `quit` or `exit` to stop.
 
-Currently a manual proof-of-concept for the model → tool → model loop. Next step: automate this flow using LangGraph.
