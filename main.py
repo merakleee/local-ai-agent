@@ -6,7 +6,7 @@ from imapclient import IMAPClient
 from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_ollama import ChatOllama
-from langchain_core.messages import ToolMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import ToolNode
 from typing import Annotated, TypedDict
 from langgraph.graph.message import add_messages
@@ -21,7 +21,16 @@ IMAP_PORT = 993
 
 @tool
 def fetch_recent_emails(limit: int = 5) -> str:
-    """Connects to the Gmail IMAP server using environment variables and selects the inbox."""
+    """Fetch the sender and subject line of the most recent emails in the user's Gmail inbox.
+
+    Use this when the user asks about their emails, inbox, or recent messages.
+    Returns one line per email in the format "From: ... | Subject: ...".
+    Does not return email bodies.
+
+    Args:
+        limit: How many of the most recent emails to fetch (default 5, max 20).
+    """
+    limit = max(1, min(limit, 20))
 
     try:
         with IMAPClient(IMAP_SERVER, port=IMAP_PORT, use_uid=True, ssl=True) as client:
@@ -29,6 +38,9 @@ def fetch_recent_emails(limit: int = 5) -> str:
             client.select_folder("INBOX", readonly=True)
 
             messages = client.search(["ALL"])
+            if not messages:
+                return "The inbox is empty."
+
             recent_ids = messages[-limit:]
             response = client.fetch(recent_ids, ["RFC822"])
 
@@ -43,8 +55,7 @@ def fetch_recent_emails(limit: int = 5) -> str:
             return "\n".join(results)
 
     except Exception as e:
-        print(f"Failed to connect or authenticate: {e}")
-        return None
+        return f"Error fetching emails: {e}"
 
 
 model = ChatOllama(model="llama3.2")
@@ -82,26 +93,28 @@ graph_builder.add_edge("tools", "agent")
 memory = MemorySaver()
 graph = graph_builder.compile(checkpointer=memory)
 
-config = {"configurable": {"thread_id": "1"}}
-
-result = graph.invoke(
-    {"messages": [HumanMessage(
-        content="Summarize my latest emails in a friendly tone.")]},
-    config,
-)
-print(result["messages"][-1].content)
-
-config = {"configurable": {"thread_id": "2"}}
-result = graph.invoke(
-    {"messages": [HumanMessage(
-        content="Which of those emails looks the most important?")]},
-    config,
-)
-print(result["messages"][-1].content)
-
 
 def main():
-    print("Email Agent initialized.")
+    config = {"configurable": {"thread_id": "1"}}
+
+    try:
+        while True:
+            user_input = input("You: ").strip()
+
+            if not user_input:
+                continue
+
+            if user_input.lower() in ["exit", "quit"]:
+                print("Exiting...")
+                break
+
+            result = graph.invoke(
+                {"messages": [HumanMessage(content=user_input)]},
+                config,
+            )
+            print("Agent:", result["messages"][-1].content)
+    except Exception as e:
+        print(f"Error fetching emails: {e}")
 
 
 if __name__ == "__main__":
